@@ -138,7 +138,8 @@ async function applyEdit(edit, context, openai) {
 }
 
 async function generateKeywords() {
-  // Placeholder for future keyword generation
+  // TODO: replace this stub with real keyword generation
+  // Returning an array so callers can assign directly to product.keywords
   return [];
 }
 
