@@ -146,6 +146,60 @@ async function generateKeywords() {
   return [];
 }
 
+function applyVariantInventorySettings(variant, inv) {
+  const minQty = isNaN(inv.qty_min) ? 0 : inv.qty_min;
+  const maxQty = isNaN(inv.qty_max) ? minQty : inv.qty_max;
+
+  variant.inventory_policy = inv.variant_inventory_policy || "deny";
+
+  if (inv.variant_weight_unit) {
+    variant.weight_unit = inv.variant_weight_unit;
+  }
+
+  variant.inventory_management = inv.track_quantity ? "shopify" : null;
+
+  if (maxQty > minQty) {
+    variant.inventory_quantity =
+      Math.floor(Math.random() * (maxQty - minQty + 1)) + minQty;
+  } else {
+    variant.inventory_quantity = minQty;
+  }
+
+  if (inv.currency) {
+    variant.price_currency = inv.currency;
+  }
+
+  let price = parseFloat(variant.price || "0");
+  if (inv.adjustPrices && !isNaN(inv.adjustmentAmount)) {
+    price += inv.adjustmentAmount;
+  }
+
+  if (inv.roundPrices && !isNaN(inv.roundingNumber)) {
+    const whole = Math.floor(price);
+    price = whole + inv.roundingNumber;
+  }
+  variant.price = price.toFixed(2);
+
+  const basePrice = parseFloat(variant.price);
+  let comparePrice = NaN;
+  if (!isNaN(inv.compare_at_amount)) {
+    if (inv.compare_at_strategy === "=") {
+      comparePrice = inv.compare_at_amount;
+    } else if (inv.compare_at_strategy === "+") {
+      comparePrice = basePrice + inv.compare_at_amount;
+    } else if (inv.compare_at_strategy === "x") {
+      comparePrice = basePrice * inv.compare_at_amount;
+    }
+  }
+
+  if (!isNaN(comparePrice) && comparePrice > basePrice) {
+    variant.compare_at_price = comparePrice.toFixed(2);
+    if (inv.currency) {
+      variant.compare_at_price_currency = inv.currency;
+    }
+  }
+}
+
 const optimizeProductsByIdsBatchV3 = functions.https.onRequest((req, res) => {
   return require("cors")()(req, res, async () => {
     try {
@@ -247,15 +301,24 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
 
         // Inventory
         if (Array.isArray(product.variants)) {
+          const inv = { ...(settings.inventoryPrices || {}) };
+          inv.qty_min = Number(inv.variant_inventory_qty_min);
+          inv.qty_max = Number(inv.variant_inventory_qty_max);
+          inv.adjustmentAmount = Number(inv.adjustmentAmount);
+          inv.roundingNumber = Number(inv.roundingNumber);
+          inv.compare_at_amount = Number(inv.compare_at_amount);
+
           for (const variant of product.variants) {
-            if (settings.inventoryPrices?.sku) {
-              const sku = await applyEdit(settings.inventoryPrices.sku, context, openai);
+            if (inv.sku) {
+              const sku = await applyEdit(inv.sku, context, openai);
               if (sku) variant.sku = sku;
             }
-            if (settings.inventoryPrices?.barcode) {
-              const bc = await applyEdit(settings.inventoryPrices.barcode, context, openai);
+            if (inv.barcode) {
+              const bc = await applyEdit(inv.barcode, context, openai);
               if (bc) variant.barcode = bc;
             }
+
+            applyVariantInventorySettings(variant, inv);
           }
         }
 
@@ -364,4 +427,5 @@ module.exports = {
   insertSupabaseProductData,
   optimizeProductsByIdsBatchV3,
   processOptimizeProductsBatchTaskV3,
+  applyVariantInventorySettings,
 };
