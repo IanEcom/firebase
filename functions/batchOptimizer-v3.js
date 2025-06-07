@@ -66,6 +66,8 @@ async function insertSupabaseProductData({
   editType = "ai-edit",
   importId = null,
   storeId = null,
+  inAppTags = [],
+  language = null,
 }) {
   const product = productData.product;
   const insertPayload = {
@@ -78,7 +80,8 @@ async function insertSupabaseProductData({
     source_country: sourceCountry,
     store_id: storeId || null,
     source_domain: product?.source_domain || null,
-    in_app_tags: [],
+    in_app_tags: inAppTags,
+    language,
     ranking: null,
     edit_type: editType,
     import_id: importId || null,
@@ -309,11 +312,13 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           userId: user.UID,
           originalProductId: original.id,
           productData: raw,
-          sourceType: original.source_type,
+          sourceType: user.source_type || original.source_type,
           sourcePlatform: original.source_platform,
-          sourceCountry: original.source_country,
+          sourceCountry: user.source_country || original.source_country,
           importId: settings.bulkeditid,
           storeId: user.store_id || null,
+          inAppTags: settings.general?.in_app_tags || [],
+          language: settings.general?.Language || null,
         });
 
         createdCount++;
