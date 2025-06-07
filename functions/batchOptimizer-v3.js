@@ -236,6 +236,9 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
         }
         product.published = settings.organization?.published;
         product.status = settings.organization?.status || product.status;
+        if (settings.organization?.theme_template) {
+          product.theme_template = settings.organization.theme_template;
+        }
 
         // Inventory
         if (Array.isArray(product.variants)) {
@@ -283,6 +286,17 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
         // General gender field
         const genGender = await applyEdit(settings.general?.gender, context, openai);
         if (genGender) product.gender = genGender;
+
+        if (Array.isArray(settings.customMetafields)) {
+          product.metafields = product.metafields || [];
+          for (const mf of settings.customMetafields) {
+            if (!mf) continue;
+            const val = await applyEdit(mf.value, context, openai);
+            if (val) {
+              product.metafields.push({ ...mf, value: val });
+            }
+          }
+        }
 
         // Keywords placeholder
         product.keywords = await generateKeywords(product, settings.keywords, openai);
