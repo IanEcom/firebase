@@ -229,20 +229,21 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
 
         // Organization/vendortags etc
         product.vendor = settings.organization?.vendor || product.vendor;
+
+        const newTags = await applyEdit(settings.organization?.tags, context, openai);
         if (settings.organization?.tagAction === "clear") {
           product.tags = "";
         } else if (settings.organization?.tagAction === "replace") {
-          product.tags = settings.organization?.tags || "";
-        } else if (settings.organization?.tagAction === "add" && settings.organization?.tags) {
+          product.tags = newTags || "";
+        } else if (settings.organization?.tagAction === "add" && newTags) {
           const existing = (product.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
-          const incoming = settings.organization.tags.split(",").map((t) => t.trim()).filter(Boolean);
+          const incoming = newTags.split(",").map((t) => t.trim()).filter(Boolean);
           product.tags = Array.from(new Set([...existing, ...incoming])).join(", ");
         }
         product.published = settings.organization?.published;
         product.status = settings.organization?.status || product.status;
-        if (settings.organization?.theme_template) {
-          product.theme_template = settings.organization.theme_template;
-        }
+        const template = await applyEdit(settings.organization?.theme_template, context, openai);
+        if (template) product.theme_template = template;
 
         // Inventory
         if (Array.isArray(product.variants)) {
