@@ -14,8 +14,15 @@ const {
   processOptimizeProductsBatchTask,
 } = require("./batchOptimizer");
 
+const {
+  optimizeProductsByIdsBatchV3,
+  processOptimizeProductsBatchTaskV3,
+} = require("./batchOptimizer-v3");
+
 exports.optimizeProductsByIdsBatch = optimizeProductsByIdsBatch;
 exports.processOptimizeProductsBatchTask = processOptimizeProductsBatchTask;
+exports.optimizeProductsByIdsBatchV3 = optimizeProductsByIdsBatchV3;
+exports.processOptimizeProductsBatchTaskV3 = processOptimizeProductsBatchTaskV3;
 
 
 
