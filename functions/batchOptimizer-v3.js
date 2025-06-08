@@ -3,6 +3,7 @@
 // FIREBASE
 const functions = require("firebase-functions");
 const { onRequest } = require("firebase-functions/v2/https");
+const logger = require("firebase-functions/logger");
 
 // GOOGLE
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
@@ -208,6 +209,11 @@ const optimizeProductsByIdsBatchV3 = functions.https.onRequest((req, res) => {
         return res.status(400).json({ success: false, message: "Invalid input" });
       }
 
+      logger.info("Start optimizeProductsByIdsBatchV3", {
+        uid: user.UID,
+        totalProducts: productIds.length,
+      });
+
       const bulkeditid = Date.now().toString();
       const batchSize = 10;
       settings.bulkeditid = bulkeditid;
@@ -240,12 +246,15 @@ const optimizeProductsByIdsBatchV3 = functions.https.onRequest((req, res) => {
             body: Buffer.from(JSON.stringify(taskPayload)).toString("base64"),
           },
         };
-        await tasksClient.createTask({ parent, task });
+        const [cloudTask] = await tasksClient.createTask({ parent, task });
+        logger.info(`Batch ${i + 1}/${batches.length} task created`, { name: cloudTask.name });
       }
+
+      logger.info("All batch tasks created", { count: batches.length, bulkeditid });
 
       return res.status(200).json({ success: true, bulkeditid, message: `Batches aangemaakt: ${batches.length}` });
     } catch (err) {
-      console.error("optimizeProductsByIdsBatchV3 error", err);
+      logger.error("optimizeProductsByIdsBatchV3 error", err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -256,6 +265,11 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
   return cors(req, res, async () => {
     try {
       const { productIds, user, settings } = req.body;
+      logger.info("Start processOptimizeProductsBatchTaskV3", {
+        uid: user.UID,
+        count: productIds.length,
+        startIndex: settings.startIndex,
+      });
       const supabase = await initSupabase();
       const [version] = await secretClient.accessSecretVersion({
         name: "projects/734399878923/secrets/openAiSecret/versions/latest",
@@ -276,6 +290,7 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
       let lastReported = 0;
 
       for (const original of products) {
+        logger.debug("Processing product", { id: original.id });
         let raw = typeof original.product_data === "string" ? JSON.parse(original.product_data) : original.product_data;
         if (!raw?.product?.title) continue;
         const product = raw.product;
@@ -413,9 +428,10 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           .eq("bulkeditid", settings.bulkeditid);
       }
 
+      logger.info("Batch processed", { processed: createdCount });
       return res.status(200).json({ success: true, message: "Batch processed" });
     } catch (err) {
-      console.error("processOptimizeProductsBatchTaskV3 error", err);
+      logger.error("processOptimizeProductsBatchTaskV3 error", err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
