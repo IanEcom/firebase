@@ -5,6 +5,12 @@ const functions = require("firebase-functions");
 const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 
+function logChange(productId, field, before, after) {
+  if (before !== after) {
+    logger.debug(`Product ${productId} ${field} updated`, { before, after });
+  }
+}
+
 // GOOGLE
 const { SecretManagerServiceClient } = require("@google-cloud/secret-manager");
 const { CloudTasksClient } = require("@google-cloud/tasks");
@@ -147,7 +153,8 @@ async function generateKeywords() {
   return [];
 }
 
-function applyVariantInventorySettings(variant, inv) {
+function applyVariantInventorySettings(variant, inv, productId = null, index = null) {
+  const before = { ...variant };
   const minQty = isNaN(inv.qty_min) ? 0 : inv.qty_min;
   const maxQty = isNaN(inv.qty_max) ? minQty : inv.qty_max;
 
@@ -199,11 +206,19 @@ function applyVariantInventorySettings(variant, inv) {
       variant.compare_at_price_currency = inv.currency;
     }
   }
+
+  logger.debug("Variant inventory applied", {
+    productId,
+    variantIndex: index,
+    before,
+    after: variant,
+  });
 }
 
 const optimizeProductsByIdsBatchV3 = functions.https.onRequest((req, res) => {
   return require("cors")()(req, res, async () => {
     try {
+      logger.debug("Incoming payload", req.body);
       const { productIds, user, settings } = req.body;
       if (!Array.isArray(productIds) || !user?.UID || !settings) {
         return res.status(400).json({ success: false, message: "Invalid input" });
@@ -264,6 +279,7 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
   const cors = require("cors")({ origin: true });
   return cors(req, res, async () => {
     try {
+      logger.debug("Task payload", req.body);
       const { productIds, user, settings } = req.body;
       logger.info("Start processOptimizeProductsBatchTaskV3", {
         uid: user.UID,
@@ -297,22 +313,38 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
         const context = { ...product, now: Date.now().toString() };
 
         // Organization/vendortags etc
+        const prevVendor = product.vendor;
         product.vendor = settings.organization?.vendor || product.vendor;
+        logChange(original.id, "vendor", prevVendor, product.vendor);
 
         const newTags = await applyEdit(settings.organization?.tags, context, openai);
         if (settings.organization?.tagAction === "clear") {
+          const beforeTags = product.tags;
           product.tags = "";
+          logChange(original.id, "tags", beforeTags, product.tags);
         } else if (settings.organization?.tagAction === "replace") {
+          const beforeTags = product.tags;
           product.tags = newTags || "";
+          logChange(original.id, "tags", beforeTags, product.tags);
         } else if (settings.organization?.tagAction === "add" && newTags) {
           const existing = (product.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
           const incoming = newTags.split(",").map((t) => t.trim()).filter(Boolean);
+          const beforeTags = product.tags;
           product.tags = Array.from(new Set([...existing, ...incoming])).join(", ");
+          logChange(original.id, "tags", beforeTags, product.tags);
         }
+        const prevPublished = product.published;
         product.published = settings.organization?.published;
+        logChange(original.id, "published", prevPublished, product.published);
+        const prevStatus = product.status;
         product.status = settings.organization?.status || product.status;
+        logChange(original.id, "status", prevStatus, product.status);
         const template = await applyEdit(settings.organization?.theme_template, context, openai);
-        if (template) product.theme_template = template;
+        if (template) {
+          const before = product.theme_template;
+          product.theme_template = template;
+          logChange(original.id, "theme_template", before, template);
+        }
 
         // Inventory
         if (Array.isArray(product.variants)) {
@@ -326,49 +358,121 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           for (const variant of product.variants) {
             if (inv.sku) {
               const sku = await applyEdit(inv.sku, context, openai);
-              if (sku) variant.sku = sku;
+              if (sku) {
+                const before = variant.sku;
+                variant.sku = sku;
+                logChange(original.id, "variant.sku", before, sku);
+              }
             }
             if (inv.barcode) {
               const bc = await applyEdit(inv.barcode, context, openai);
-              if (bc) variant.barcode = bc;
+              if (bc) {
+                const before = variant.barcode;
+                variant.barcode = bc;
+                logChange(original.id, "variant.barcode", before, bc);
+              }
             }
 
-            applyVariantInventorySettings(variant, inv);
+            applyVariantInventorySettings(
+              variant,
+              inv,
+              original.id,
+              product.variants.indexOf(variant)
+            );
           }
         }
 
         // Copywriting fields
         const title = await applyEdit(settings.copywriting?.title, context, openai);
-        if (title) { product.title = title; context.title = title; }
+        if (title) {
+          const before = product.title;
+          product.title = title;
+          logChange(original.id, "title", before, title);
+          context.title = title;
+        }
         const description = await applyEdit(settings.copywriting?.description, context, openai);
-        if (description) { product.body_html = description; context.description = description; }
+        if (description) {
+          const before = product.body_html;
+          product.body_html = description;
+          logChange(original.id, "body_html", before, description);
+          context.description = description;
+        }
         const seoTitle = await applyEdit(settings.copywriting?.seo_title, context, openai);
-        if (seoTitle) { product.seo_title = seoTitle; context.seo_title = seoTitle; }
+        if (seoTitle) {
+          const before = product.seo_title;
+          product.seo_title = seoTitle;
+          logChange(original.id, "seo_title", before, seoTitle);
+          context.seo_title = seoTitle;
+        }
         const seoDesc = await applyEdit(settings.copywriting?.seo_description, context, openai);
-        if (seoDesc) { product.seo_description = seoDesc; context.seo_description = seoDesc; }
+        if (seoDesc) {
+          const before = product.seo_description;
+          product.seo_description = seoDesc;
+          logChange(original.id, "seo_description", before, seoDesc);
+          context.seo_description = seoDesc;
+        }
         const handle = await applyEdit(settings.copywriting?.handle, context, openai);
-        if (handle) { product.handle = handle; }
+        if (handle) {
+          const before = product.handle;
+          product.handle = handle;
+          logChange(original.id, "handle", before, handle);
+        }
 
         // Google fields
         const gCat = await applyEdit(settings.google?.product_category, context, openai);
-        if (gCat) product.g_category = gCat;
+        if (gCat) {
+          const before = product.g_category;
+          product.g_category = gCat;
+          logChange(original.id, "g_category", before, gCat);
+        }
         const gGender = await applyEdit(settings.google?.gender, context, openai);
-        if (gGender) product.g_gender = gGender;
+        if (gGender) {
+          const before = product.g_gender;
+          product.g_gender = gGender;
+          logChange(original.id, "g_gender", before, gGender);
+        }
+        const beforeCond = product.g_condition;
         product.g_condition = settings.google?.condition || product.g_condition;
+        logChange(original.id, "g_condition", beforeCond, product.g_condition);
+        const beforeAge = product.g_age_group;
         product.g_age_group = settings.google?.ageGroup || product.g_age_group;
+        logChange(original.id, "g_age_group", beforeAge, product.g_age_group);
+        const beforeCustom = product.g_custom_product;
         product.g_custom_product = settings.google?.customProduct || product.g_custom_product;
+        logChange(original.id, "g_custom_product", beforeCustom, product.g_custom_product);
         if (Array.isArray(settings.google?.custom_labels)) {
-          settings.google.custom_labels = await Promise.all(settings.google.custom_labels.map((cl) => applyEdit(cl, context, openai)));
+          settings.google.custom_labels = await Promise.all(
+            settings.google.custom_labels.map((cl) => applyEdit(cl, context, openai))
+          );
+          const beforeLabels = [
+            product.g_label0,
+            product.g_label1,
+            product.g_label2,
+            product.g_label3,
+            product.g_label4,
+          ];
           product.g_label0 = settings.google.custom_labels[0] || product.g_label0;
           product.g_label1 = settings.google.custom_labels[1] || product.g_label1;
           product.g_label2 = settings.google.custom_labels[2] || product.g_label2;
           product.g_label3 = settings.google.custom_labels[3] || product.g_label3;
           product.g_label4 = settings.google.custom_labels[4] || product.g_label4;
+          const afterLabels = [
+            product.g_label0,
+            product.g_label1,
+            product.g_label2,
+            product.g_label3,
+            product.g_label4,
+          ];
+          logChange(original.id, "g_labels", beforeLabels, afterLabels);
         }
 
         // General gender field
         const genGender = await applyEdit(settings.general?.gender, context, openai);
-        if (genGender) product.gender = genGender;
+        if (genGender) {
+          const before = product.gender;
+          product.gender = genGender;
+          logChange(original.id, "gender", before, genGender);
+        }
 
         if (Array.isArray(settings.customMetafields)) {
           product.metafields = product.metafields || [];
@@ -377,6 +481,7 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
             const val = await applyEdit(mf.value, context, openai);
             if (val) {
               product.metafields.push({ ...mf, value: val });
+              logChange(original.id, `metafield_${mf.key}`, null, val);
             }
           }
         }
@@ -399,6 +504,7 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           inAppTags: settings.general?.in_app_tags || [],
           language: settings.general?.Language || null,
         });
+        logger.debug("Product stored", { id: original.id });
 
         createdCount++;
         const shouldUpdate = createdCount - lastReported >= 5;
