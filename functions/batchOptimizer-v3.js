@@ -125,6 +125,15 @@ function resolveMessages(messages, context) {
   }));
 }
 
+function slugify(str) {
+  return (str || "")
+    .toString()
+    .normalize("NFD")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+}
+
 async function applyEdit(edit, context, openai) {
   if (!edit) return null;
   if (edit.edit_type === "dynamic_template") {
@@ -414,8 +423,8 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
         const handle = await applyEdit(settings.copywriting?.handle, context, openai);
         if (handle) {
           const before = product.handle;
-          product.handle = handle;
-          logChange(original.id, "handle", before, handle);
+          product.handle = slugify(handle);
+          logChange(original.id, "handle", before, product.handle);
         }
 
         // Google fields
@@ -488,6 +497,12 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
 
         // Keywords placeholder
         product.keywords = await generateKeywords(product, settings.keywords, openai);
+
+        if (!product.handle) {
+          const generated = slugify(product.title);
+          product.handle = generated;
+          logChange(original.id, "handle", null, generated);
+        }
 
         raw.product = product;
 
