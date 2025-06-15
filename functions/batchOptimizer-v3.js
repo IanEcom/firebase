@@ -51,9 +51,10 @@ async function createOrUpdateSupabaseHistory(supabaseUserId, bulkeditid, newData
       .single();
     return data;
   } else {
+    const updateData = { ...newData, updated_at: new Date().toISOString() };
     const { data } = await supabase
       .from("history_items")
-      .update({ ...newData, updated_at: new Date().toISOString() })
+      .update(updateData)
       .eq("user_id", supabaseUserId)
       .eq("bulkeditid", bulkeditid)
       .select()
@@ -233,6 +234,8 @@ const optimizeProductsByIdsBatchV3 = functions.https.onRequest((req, res) => {
         return res.status(400).json({ success: false, message: "Invalid input" });
       }
 
+      const incomingSettings = JSON.parse(JSON.stringify(settings));
+
       logger.info("Start optimizeProductsByIdsBatchV3", {
         uid: user.UID,
         totalProducts: productIds.length,
@@ -251,6 +254,7 @@ const optimizeProductsByIdsBatchV3 = functions.https.onRequest((req, res) => {
         tokens: 0,
         products_processed: 0,
         output_file: "",
+        edit_settings: incomingSettings,
       });
 
       const batches = [];
