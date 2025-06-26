@@ -83,6 +83,7 @@ async function insertSupabaseProductData({
     title: product?.title || "",
     price: parseFloat(product?.variants?.[0]?.price || 0),
     image: product?.image?.src || "",
+    gender: product?.gender || null,
     source_type: sourceType,
     source_platform: sourcePlatform,
     source_country: sourceCountry,
