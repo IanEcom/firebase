@@ -324,6 +324,17 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
         if (!raw?.product?.title) continue;
         const product = raw.product;
         const context = { ...product, now: Date.now().toString() };
+        // Store original values for OG placeholders
+        context.description = product.body_html;
+        context["seo-title"] = product.seo_title;
+        context["seo_description"] = product.seo_description;
+        context["seo-description"] = product.seo_description;
+        context.OGtitle = product.title;
+        context["OGseo_title"] = product.seo_title;
+        context["OGseo-title"] = product.seo_title;
+        context.OGdescription = product.body_html;
+        context["OGseo_description"] = product.seo_description;
+        context["OGseo-description"] = product.seo_description;
 
         // Organization/vendortags etc
         const prevVendor = product.vendor;
@@ -409,6 +420,7 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           product.body_html = description;
           logChange(original.id, "body_html", before, description);
           context.description = description;
+          context["OGdescription"] = context["OGdescription"] || description;
         }
         const seoTitle = await applyEdit(settings.copywriting?.seo_title, context, openai);
         if (seoTitle) {
@@ -416,6 +428,11 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           product.seo_title = seoTitle;
           logChange(original.id, "seo_title", before, seoTitle);
           context.seo_title = seoTitle;
+          context["seo-title"] = seoTitle;
+          if (!context["OGseo_title"] && !context["OGseo-title"]) {
+            context["OGseo_title"] = seoTitle;
+            context["OGseo-title"] = seoTitle;
+          }
         }
         const seoDesc = await applyEdit(settings.copywriting?.seo_description, context, openai);
         if (seoDesc) {
@@ -423,6 +440,11 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           product.seo_description = seoDesc;
           logChange(original.id, "seo_description", before, seoDesc);
           context.seo_description = seoDesc;
+          context["seo-description"] = seoDesc;
+          if (!context["OGseo_description"] && !context["OGseo-description"]) {
+            context["OGseo_description"] = seoDesc;
+            context["OGseo-description"] = seoDesc;
+          }
         }
         const handle = await applyEdit(settings.copywriting?.handle, context, openai);
         if (handle) {
@@ -430,6 +452,14 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           product.handle = slugify(handle);
           logChange(original.id, "handle", before, product.handle);
         }
+
+        // Ensure OG placeholders fallback to new values when originals are missing
+        if (!context.OGtitle) context.OGtitle = context.title;
+        if (!context["OGseo_title"]) context["OGseo_title"] = context.seo_title;
+        if (!context["OGseo-title"]) context["OGseo-title"] = context["seo-title"];
+        if (!context.OGdescription) context.OGdescription = context.description;
+        if (!context["OGseo_description"]) context["OGseo_description"] = context.seo_description;
+        if (!context["OGseo-description"]) context["OGseo-description"] = context["seo-description"];
 
         // Google fields
         const gCat = await applyEdit(settings.google?.product_category, context, openai);
