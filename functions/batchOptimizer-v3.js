@@ -323,7 +323,20 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
         let raw = typeof original.product_data === "string" ? JSON.parse(original.product_data) : original.product_data;
         if (!raw?.product?.title) continue;
         const product = raw.product;
-        const context = { ...product, now: Date.now().toString() };
+        const context = {
+          ...product,
+          title: product.title,
+          "seo-title": product.seo_title,
+          description: product.body_html,
+          "seo-description": product.seo_description,
+          OGtitle: product.title,
+          OGseo_title: product.seo_title,
+          "OGseo-title": product.seo_title,
+          OGdescription: product.body_html,
+          OGseo_description: product.seo_description,
+          "OGseo-description": product.seo_description,
+          now: Date.now().toString(),
+        };
 
         // Organization/vendortags etc
         const prevVendor = product.vendor;
@@ -402,6 +415,9 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           product.title = title;
           logChange(original.id, "title", before, title);
           context.title = title;
+          context["title"] = title;
+          if (!context.OGtitle) context.OGtitle = title;
+          if (!context["OGtitle"]) context["OGtitle"] = title;
         }
         const description = await applyEdit(settings.copywriting?.description, context, openai);
         if (description) {
@@ -409,6 +425,9 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           product.body_html = description;
           logChange(original.id, "body_html", before, description);
           context.description = description;
+          context["description"] = description;
+          if (!context.OGdescription) context.OGdescription = description;
+          if (!context["OGdescription"]) context["OGdescription"] = description;
         }
         const seoTitle = await applyEdit(settings.copywriting?.seo_title, context, openai);
         if (seoTitle) {
@@ -416,6 +435,9 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           product.seo_title = seoTitle;
           logChange(original.id, "seo_title", before, seoTitle);
           context.seo_title = seoTitle;
+          context["seo-title"] = seoTitle;
+          if (!context.OGseo_title) context.OGseo_title = seoTitle;
+          if (!context["OGseo-title"]) context["OGseo-title"] = seoTitle;
         }
         const seoDesc = await applyEdit(settings.copywriting?.seo_description, context, openai);
         if (seoDesc) {
@@ -423,6 +445,9 @@ const processOptimizeProductsBatchTaskV3 = onRequest({ timeoutSeconds: 300 }, as
           product.seo_description = seoDesc;
           logChange(original.id, "seo_description", before, seoDesc);
           context.seo_description = seoDesc;
+          context["seo-description"] = seoDesc;
+          if (!context.OGseo_description) context.OGseo_description = seoDesc;
+          if (!context["OGseo-description"]) context["OGseo-description"] = seoDesc;
         }
         const handle = await applyEdit(settings.copywriting?.handle, context, openai);
         if (handle) {
