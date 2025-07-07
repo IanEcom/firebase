@@ -4,6 +4,7 @@
 const functions = require("firebase-functions");
 const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
+const fetch = require("node-fetch");
 
 function logChange(productId, field, before, after) {
   if (before !== after) {
@@ -158,10 +159,98 @@ async function applyEdit(edit, context, openai) {
   return null;
 }
 
-async function generateKeywords() {
-  // TODO: replace this stub with real keyword generation
-  // Returning an array so callers can assign directly to product.keywords
-  return [];
+async function fetchDataforseoKeywords(seeds, settings, auth) {
+  if (!Array.isArray(seeds) || seeds.length === 0) return [];
+  const endpoint = `https://api.dataforseo.com/v3/dataforseo_labs/${settings.search_engine}/${settings.function_type}/live`;
+  const payload = [
+    {
+      keywords: seeds,
+      location_name: settings.location,
+      language_name: settings.language,
+      limit: Number(settings.limit) || 10,
+      closely_variants: settings.closely_variants,
+      ignore_synonyms: settings.ignore_synonyms,
+      order_by: `${settings.sort_field},${settings.sort_order}`,
+      filters: (settings.filters || []).map((f) => [
+        `keyword_data.${f.field}`,
+        f.operator,
+        Number(f.value) || f.value,
+      ]),
+    },
+  ];
+  const resp = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Basic " + Buffer.from(`${auth.login}:${auth.password}`).toString("base64"),
+    },
+    body: JSON.stringify(payload),
+  });
+  const json = await resp.json();
+  const items = json.tasks?.[0]?.result?.[0]?.items || [];
+  return items.map((it) => it.keyword).filter(Boolean);
+}
+
+async function generateKeywords(product, keywordSettings, openai) {
+  if (!keywordSettings?.show_keyword_research || !keywordSettings.settings) return [];
+
+  const settings = keywordSettings.settings;
+
+  const context = {
+    ...product,
+    title: product.title,
+    description: product.body_html,
+    "seo-title": product.seo_title,
+    "seo-description": product.seo_description,
+    OGtitle: product.title,
+    OGdescription: product.body_html,
+    OGseo_title: product.seo_title,
+    OGseo_description: product.seo_description,
+  };
+
+  let seedTemplate = settings.seed_template || "{{OGtitle}}";
+  let seedKeywords = fillTemplate(seedTemplate, context);
+
+  if (settings.seed_ai?.show_prompt) {
+    const seedContext = { ...context, seedkeywords: seedKeywords };
+    const messages = resolveMessages(settings.seed_ai.messages || [], seedContext);
+    const completion = await openai.chat.completions.create({
+      model: settings.seed_ai.model,
+      messages,
+      temperature: settings.seed_ai.temperature,
+      max_tokens: settings.seed_ai.max_tokens,
+    });
+    seedKeywords = completion.choices?.[0]?.message?.content?.trim() || seedKeywords;
+  }
+
+  const seeds = seedKeywords
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const auth = {
+    login: process.env.DFS_LOGIN || "",
+    password: process.env.DFS_PASSWORD || "",
+  };
+
+  let keywords = await fetchDataforseoKeywords(seeds, settings, auth);
+
+  if (settings.keyword_ai?.show_prompt && keywords.length > 0) {
+    const kwContext = { ...context, keywords: keywords.join(", ") };
+    const messages = resolveMessages(settings.keyword_ai.messages || [], kwContext);
+    const completion = await openai.chat.completions.create({
+      model: settings.keyword_ai.model,
+      messages,
+      temperature: settings.keyword_ai.temperature,
+      max_tokens: settings.keyword_ai.max_tokens,
+    });
+    const optimized = completion.choices?.[0]?.message?.content?.trim();
+    if (optimized) {
+      keywords = optimized.split(/[,\n]/).map((k) => k.trim()).filter(Boolean);
+    }
+  }
+
+  return keywords;
 }
 
 function applyVariantInventorySettings(variant, inv, productId = null, index = null) {
@@ -595,4 +684,5 @@ module.exports = {
   optimizeProductsByIdsBatchV3,
   processOptimizeProductsBatchTaskV3,
   applyVariantInventorySettings,
+  generateKeywords,
 };
