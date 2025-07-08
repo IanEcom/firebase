@@ -170,7 +170,10 @@ async function fetchDataforseoKeywords(seeds, settings, auth) {
       limit: Number(settings.limit) || 10,
       closely_variants: settings.closely_variants,
       ignore_synonyms: settings.ignore_synonyms,
-      order_by: `${settings.sort_field},${settings.sort_order}`,
+      order_by: [
+        "relevance,desc",
+        `${settings.sort_field},${settings.sort_order}`,
+      ],
       filters: (settings.filters || []).map((f) => [
         `keyword_data.${f.field}`,
         f.operator,
